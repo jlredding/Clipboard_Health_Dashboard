@@ -176,8 +176,8 @@ with tab2:
 with tab3:
     total_ctr = f["contract_hrs"].sum()
     k1, k2, k3 = st.columns(3)
-    k1.metric("Contract share of nursing hours", f"{total_ctr / f['nurse_hrs'].sum():.1%}")
-    k2.metric("Facilities using no contract staff", f"{(f['contract_hrs'] == 0).mean():.0%}")
+    k1.metric("Contract share", f"{total_ctr / f['nurse_hrs'].sum():.1%}")
+    k2.metric("Use no contract staff", f"{(f['contract_hrs'] == 0).mean():.0%}")
     k3.metric("Contract hours (Q2)", f"{total_ctr / 1e6:.2f}M")
 
     st_ctr = (f.groupby("STATE")
