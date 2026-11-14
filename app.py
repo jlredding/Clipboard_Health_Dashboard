@@ -143,18 +143,15 @@ with tab2:
 
     st.subheader("Largest vs. smallest facilities")
     n = st.slider("How many of each", 5, 20, 10)
-    cols = {"PROVNAME": "Facility", "STATE": "State", "avg_census": "Avg census", "hprd": "HPRD"}
-    l, s_ = st.columns(2)
-    for col, label, rows in [(l, "Largest", f.nlargest(n, "avg_census")),
-                             (s_, "Smallest", f.nsmallest(n, "avg_census"))]:
-        with col:
-            fig = px.bar(rows.sort_values("avg_census"), x="avg_census", y="PROVNAME", orientation="h",
-                         color="hprd", color_continuous_scale="RdBu", range_color=[2, 5],
-                         hover_data={"STATE": True, "hprd": ":.2f"},
-                         labels={"avg_census": "Avg census", "PROVNAME": "", "hprd": "HPRD"},
-                         title=f"{label} {n} by census")
-            fig.update_layout(height=120 + 28 * n)
-            st.plotly_chart(fig, width="stretch")
+    for label, rows in [("Largest", f.nlargest(n, "avg_census")), ("Smallest", f.nsmallest(n, "avg_census"))]:
+        rows = rows.assign(name=rows["PROVNAME"].str.title().str.slice(0, 40) + " (" + rows["STATE"] + ")")
+        fig = px.bar(rows.sort_values("avg_census"), x="avg_census", y="name", orientation="h",
+                     color="hprd", color_continuous_scale="RdBu", range_color=[2, 5],
+                     hover_data={"hprd": ":.2f", "name": False},
+                     labels={"avg_census": "Average daily census", "name": "", "hprd": "HPRD"},
+                     title=f"{label} {n} facilities by census (color = HPRD)")
+        fig.update_layout(height=140 + 28 * n)
+        st.plotly_chart(fig, width="stretch")
 
     st.subheader("Low-staffing watchlist")
     st.caption("Facilities with frequent days under 1.5 HPRD. Very low quarter-wide HPRD usually means "
@@ -175,6 +172,62 @@ with tab2:
                                   "days_below_1_5": "Days < 1.5"}).round(2),
                  hide_index=True, width="stretch")
 
-# ---------------- Tab 3: Contract Staffing (next step) ----------------
+# ---------------- Tab 3: Contract Staffing ----------------
 with tab3:
-    st.info("Coming in step 4: contract share by state, contract share vs. HPRD, savings calculator.")
+    total_ctr = f["contract_hrs"].sum()
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Contract share of nursing hours", f"{total_ctr / f['nurse_hrs'].sum():.1%}")
+    k2.metric("Facilities using no contract staff", f"{(f['contract_hrs'] == 0).mean():.0%}")
+    k3.metric("Contract hours (Q2)", f"{total_ctr / 1e6:.2f}M")
+
+    st_ctr = (f.groupby("STATE")
+                .agg(facilities=("PROVNUM", "count"), nurse_hrs=("nurse_hrs", "sum"),
+                     resident_days=("resident_days", "sum"), contract_hrs=("contract_hrs", "sum"))
+                .reset_index())
+    st_ctr["contract_share"] = st_ctr["contract_hrs"] / st_ctr["nurse_hrs"]
+    st_ctr["hprd"] = st_ctr["nurse_hrs"] / st_ctr["resident_days"]
+
+    st.subheader("Reliance on contract (agency) staff by state")
+    fig = px.bar(st_ctr.sort_values("contract_share"), x="contract_share", y="STATE", orientation="h",
+                 hover_data={"facilities": True, "hprd": ":.2f"},
+                 labels={"contract_share": "Contract share of nursing hours", "STATE": ""})
+    fig.update_xaxes(tickformat=".0%")
+    fig.update_layout(height=max(300, 18 * len(st_ctr)))
+    st.plotly_chart(fig, width="stretch")
+
+    st.subheader("Is contract use linked to higher staffing?")
+    if len(st_ctr) >= 3:
+        r_state = st_ctr["contract_share"].corr(st_ctr["hprd"])
+        r_fac = f["contract_share"].corr(f["hprd"])
+        st.caption(f"Each bubble is a state, sized by number of facilities. The association is weak: "
+                   f"r = {r_state:.2f} across states and r = {r_fac:.2f} across facilities. "
+                   "Contract staff fill gaps in some places, but contract use alone doesn't explain "
+                   "which states staff well.")
+    fig = px.scatter(st_ctr, x="contract_share", y="hprd", size="facilities", text="STATE",
+                     hover_data={"facilities": True, "hprd": ":.2f", "contract_share": ":.1%"},
+                     labels={"contract_share": "Contract share of nursing hours", "hprd": "HPRD"})
+    fig.update_traces(textposition="top center")
+    fig.update_xaxes(tickformat=".0%")
+    fig.add_hline(y=TARGET_HPRD, line_dash="dash", annotation_text=f"{TARGET_HPRD} target")
+    st.plotly_chart(fig, width="stretch")
+
+    st.subheader("What if contract hours moved to employed staff?")
+    st.caption("A what-if estimate for the facilities in the current filter. The hourly premium is an "
+               "assumption, so enter your own figure for what agencies charge above employee pay.")
+    c1, c2 = st.columns(2)
+    convert = c1.slider("Share of contract hours converted to employees", 0, 100, 25, step=5) / 100
+    premium = c2.number_input("Agency premium ($ per hour above employee cost)", 0.0, 200.0, 20.0, step=5.0)
+    q_savings = total_ctr * convert * premium
+    s1, s2 = st.columns(2)
+    s1.metric("Estimated savings - Q2 2024", f"${q_savings / 1e6:,.1f}M")
+    s2.metric("Annualized (x4)", f"${q_savings * 4 / 1e6:,.1f}M")
+    st_ctr["est_q_savings"] = st_ctr["contract_hrs"] * convert * premium
+    st.dataframe(st_ctr.sort_values("est_q_savings", ascending=False)
+                 [["STATE", "facilities", "contract_share", "contract_hrs", "est_q_savings"]]
+                 .rename(columns={"STATE": "State", "facilities": "Facilities",
+                                  "contract_share": "Contract share", "contract_hrs": "Contract hours",
+                                  "est_q_savings": "Est. Q2 savings ($)"}),
+                 hide_index=True, width="stretch",
+                 column_config={"Contract share": st.column_config.NumberColumn(format="percent"),
+                                "Contract hours": st.column_config.NumberColumn(format="localized"),
+                                "Est. Q2 savings ($)": st.column_config.NumberColumn(format="dollar")})
