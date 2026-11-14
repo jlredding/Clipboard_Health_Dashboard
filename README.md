@@ -56,4 +56,4 @@ To rebuild the data files, download the Q2 2024 CSV from CMS and run `prepare_da
 - **Next steps:** add CMS star ratings to connect staffing with quality outcomes, compare against prior quarters, and load the pipeline into Snowflake for scheduled refreshes.
 
 ## Contact
-[LinkedIn](https://www.linkedin.com/in/YOUR-PROFILE) · [Email](mailto:YOUR-EMAIL)
+[LinkedIn](https://www.linkedin.com/in/jonathan-r-705136b9) · [Email](mailto:jonathan_redding@yahoo.com)
